@@ -14,45 +14,23 @@ from reportlab.lib.pagesizes import letter
 # 1. DATABASE & PDF LOGIC
 # ==========================================
 def init_db():
-    conn = sqlite3.connect('bulkqr_v5.db', check_same_thread=False)
+    conn = sqlite3.connect('bulkqr_v6.db', check_same_thread=False)
     c = conn.cursor()
-    # Updated User Table with Email and Mobile
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (username TEXT PRIMARY KEY, password TEXT, coins INTEGER, 
                   state TEXT, gender TEXT, email TEXT, mobile TEXT)''')
     c.execute('CREATE TABLE IF NOT EXISTS history (username TEXT, filename TEXT, count INTEGER, timestamp DATETIME)')
     c.execute('CREATE TABLE IF NOT EXISTS sales (username TEXT, amount REAL, coins_bought INTEGER, offer_applied TEXT, timestamp DATETIME)')
-    # New Offer Table
     c.execute('CREATE TABLE IF NOT EXISTS offers (offer_name TEXT, discount_percent INTEGER, active INTEGER)')
-    
-    # Initialize default offer if empty
     if c.execute('SELECT COUNT(*) FROM offers').fetchone()[0] == 0:
         c.execute("INSERT INTO offers VALUES ('No Offer', 0, 1)")
     conn.commit()
     return conn, c
 
-def generate_receipt(user, amount, coins, offer):
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
-    p.setFont("Helvetica-Bold", 20)
-    p.drawString(200, 750, "BULKQR PRO INDIA - INVOICE")
-    p.setFont("Helvetica", 12)
-    p.drawString(50, 700, f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M')}")
-    p.drawString(50, 680, f"Customer: {user}")
-    p.drawString(50, 660, f"Offer Applied: {offer}")
-    p.line(50, 640, 550, 640)
-    p.drawString(50, 610, f"Coins Added: {coins}")
-    p.drawString(50, 590, f"Total Paid: Rs. {amount:.2f}")
-    p.line(50, 570, 550, 570)
-    p.drawString(50, 550, "Thank you for your business!")
-    p.showPage()
-    p.save()
-    return buffer.getvalue()
-
 conn, c = init_db()
 
 # ==========================================
-# 2. APP CONFIG
+# 2. APP SETUP
 # ==========================================
 st.set_page_config(page_title="BulkQR India Pro", layout="wide")
 
@@ -60,12 +38,11 @@ if 'auth' not in st.session_state:
     st.session_state.auth = False
 
 # ==========================================
-# 3. LOGIN / REGISTRATION (Mandatory Fields)
+# 3. AUTHENTICATION (Mandatory Fields)
 # ==========================================
 if not st.session_state.auth:
     st.title("📸 BulkQR Pro India")
     t1, t2 = st.tabs(["🔑 Login", "📝 Register"])
-    
     with t1:
         u = st.text_input("Username")
         p = st.text_input("Password", type='password')
@@ -76,101 +53,111 @@ if not st.session_state.auth:
                 st.session_state.user = u
                 st.rerun()
             else: st.error("Invalid credentials")
-            
     with t2:
         with st.form("reg_form"):
-            st.write("All fields are mandatory")
-            nu = st.text_input("Username*")
-            np = st.text_input("Password*", type='password')
-            em = st.text_input("Email Address*")
-            mo = st.text_input("Mobile Number*")
+            nu, np = st.text_input("Username*"), st.text_input("Password*", type='password')
+            em, mo = st.text_input("Email Address*"), st.text_input("Mobile Number*")
             n_geo = st.selectbox("State*", ["Delhi", "Maharashtra", "Karnataka", "UP", "Other"])
             n_gen = st.radio("Gender*", ["Male", "Female"], horizontal=True)
-            submit = st.form_submit_button("Sign Up")
-            
-            if submit:
-                if not (nu and np and em and mo):
-                    st.error("Please fill in all fields!")
+            if st.form_submit_button("Sign Up"):
+                if not (nu and np and em and mo): st.error("All fields mandatory!")
                 else:
                     try:
-                        hashed = pbkdf2_sha256.hash(np)
-                        c.execute('INSERT INTO users VALUES (?,?,?,?,?,?,?)', (nu, hashed, 10, n_geo, n_gen, em, mo))
+                        c.execute('INSERT INTO users VALUES (?,?,?,?,?,?,?)', (nu, pbkdf2_sha256.hash(np), 10, n_geo, n_gen, em, mo))
                         conn.commit()
                         st.success("Account created! 10 Free Coins added.")
-                    except: st.error("Username already exists.")
+                    except: st.error("Username exists.")
 
 # ==========================================
-# 4. PROTECTED AREA
+# 4. MAIN APP AREA
 # ==========================================
 else:
     user = st.session_state.user
-    balance = c.execute('SELECT coins FROM users WHERE username=?', (user,)).fetchone()[0]
+    user_row = c.execute('SELECT coins FROM users WHERE username=?', (user,)).fetchone()
+    balance = user_row[0]
     active_offer = c.execute('SELECT offer_name, discount_percent FROM offers WHERE active=1 LIMIT 1').fetchone()
-    
-    # --- SIDEBAR: RECHARGE ---
+
+    # --- SIDEBAR RECHARGE ---
     st.sidebar.title(f"👤 {user}")
     st.sidebar.metric("Coins Balance", f"🪙 {balance}")
-    
     st.sidebar.write("---")
     st.sidebar.subheader("💳 Recharge (₹1 = 1 Coin)")
-    if active_offer[1] > 0:
-        st.sidebar.success(f"🔥 Offer: {active_offer[0]} ({active_offer[1]}% Extra Coins!)")
+    if active_offer[1] > 0: st.sidebar.success(f"🔥 {active_offer[0]} (+{active_offer[1]}%)")
     
     custom_amount = st.sidebar.number_input("Enter Amount (₹)", min_value=0, step=1)
     if st.sidebar.button("Pay Now"):
         if custom_amount >= 10:
-            extra_coins = int(custom_amount * (active_offer[1]/100))
-            total_added = int(custom_amount) + extra_coins
-            
+            total_added = int(custom_amount * (1 + active_offer[1]/100))
             c.execute('UPDATE users SET coins = coins + ? WHERE username=?', (total_added, user))
             c.execute('INSERT INTO sales VALUES (?,?,?,?,?)', (user, custom_amount, total_added, active_offer[0], datetime.now()))
             conn.commit()
-            st.session_state.last_receipt = generate_receipt(user, custom_amount, total_added, active_offer[0])
-            st.sidebar.success(f"Success! {total_added} Coins added.")
             st.rerun()
-        else: st.sidebar.error("Min: ₹10")
+        else: st.sidebar.error("Min ₹10")
+    
+    if st.sidebar.button("Logout"):
+        st.session_state.auth = False
+        st.rerun()
 
-    if 'last_receipt' in st.session_state:
-        st.sidebar.download_button("📄 Download Receipt", st.session_state.last_receipt, "Receipt.pdf")
-
-    # --- ADMIN: OFFER MANAGEMENT ---
+    # --- ADMIN OVERLAY ---
+    admin_active = False
     if user == "admin":
-        if st.sidebar.toggle("🛠️ Admin Dashboard"):
-            st.title("🛠️ Admin Management")
-            at1, at2, at3 = st.tabs(["📈 Sales Analytics", "👥 Users", "🎁 Set Offers"])
-            
-            with at3:
-                st.subheader("Manage Active Offer")
-                off_name = st.text_input("Offer Name (e.g. Diwali Special)")
-                off_disc = st.slider("Extra Coins %", 0, 100, 0)
-                if st.button("Update Active Offer"):
-                    c.execute('UPDATE offers SET active=0') # Disable old ones
-                    c.execute('INSERT INTO offers VALUES (?, ?, 1)', (off_name, off_disc))
+        admin_active = st.sidebar.toggle("🛠️ Admin Dashboard")
+
+    if admin_active:
+        st.title("🛠️ Admin Dashboard")
+        at1, at2, at3, at4 = st.tabs(["📈 Sales", "👥 Users", "🎁 Offers", "📧 Bulk Email"])
+        with at3:
+            o_n = st.text_input("Offer Name")
+            o_d = st.slider("Extra Coins %", 0, 100, 0)
+            if st.button("Set Offer"):
+                c.execute('UPDATE offers SET active=0')
+                c.execute('INSERT INTO offers VALUES (?,?,1)', (o_n, o_d))
+                conn.commit()
+                st.success("Offer Live!")
+        with at4:
+            st.subheader("Send Announcement")
+            subject = st.text_input("Email Subject")
+            body = st.text_area("Message Body")
+            if st.button("Send to All Users"):
+                emails = c.execute("SELECT email FROM users").fetchall()
+                st.info(f"Drafting email to {len(emails)} users...")
+                st.success("Feature Mockup: Emails added to queue!")
+    
+    else:
+        # --- USER MAIN UI (GENERATOR) ---
+        st.title("📸 Bulk QR Generator")
+        file = st.file_uploader("Step 1: Upload CSV/Excel", type=['csv', 'xlsx'])
+        if file:
+            df = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+            col = st.selectbox("Step 2: Select Column for QR", df.columns)
+            if st.button(f"Step 3: Generate {len(df)} QRs"):
+                if balance >= len(df):
+                    bar = st.progress(0); msg = st.empty(); zip_buf = io.BytesIO()
+                    with zipfile.ZipFile(zip_buf, "w") as zf:
+                        for i, row in df.iterrows():
+                            bar.progress((i+1)/len(df))
+                            msg.text(f"Processing {i+1}/{len(df)}...")
+                            qr = segno.make(str(row[col]), error='h')
+                            img_buf = io.BytesIO()
+                            qr.save(img_buf, kind='png', scale=20, border=4)
+                            zf.writestr(f"qr_{i+1}.png", img_buf.getvalue())
+                    c.execute('UPDATE users SET coins = coins - ? WHERE username=?', (len(df), user))
+                    c.execute('INSERT INTO history VALUES (?,?,?,?)', (user, file.name, len(df), datetime.now()))
                     conn.commit()
-                    st.success("Offer updated successfully!")
-            
-            with at2:
-                search = st.text_input("Manage User Balance")
-                if search:
-                    u_d = c.execute('SELECT coins, email, mobile FROM users WHERE username=?', (search,)).fetchone()
-                    if u_d:
-                        st.write(f"Email: {u_d[1]} | Mobile: {u_d[2]}")
-                        adj = st.number_input("Add/Sub Coins", value=0)
-                        if st.button("Update User"):
-                            c.execute('UPDATE users SET coins = coins + ? WHERE username=?', (adj, search))
-                            conn.commit()
-                            st.rerun()
-            st.stop()
+                    st.session_state.zip_data = zip_buf.getvalue()
+                    st.rerun()
+                else: st.error("Low balance!")
 
-    # --- USER MAIN PAGE ---
-    st.title("📸 Bulk QR Generator")
-    # ... [QR Generation Code remains the same as previous step] ...
-    # (Including high-scan quality settings: scale=20, border=4)
+        if 'zip_data' in st.session_state:
+            st.download_button("📥 DOWNLOAD ZIP FILE", st.session_state.zip_data, "Bulk_QRs.zip", "application/zip")
+            if st.button("Clear Cache"):
+                del st.session_state.zip_data
+                st.rerun()
 
-    # --- NEW: TRANSACTION HISTORY ---
-    st.write("---")
-    st.subheader("💰 Transaction History")
-    sales_df = pd.read_sql_query("SELECT amount as 'Amount (₹)', coins_bought as 'Coins Received', offer_applied as 'Offer', timestamp as 'Date' FROM sales WHERE username=?", conn, params=(user,))
-    if not sales_df.empty:
-        st.table(sales_df)
-    else: st.info("No recharges yet.")
+        st.write("---")
+        st.subheader("📜 Recent Activity")
+        h_tab, s_tab = st.tabs(["QR History", "Payment History"])
+        with h_tab:
+            st.dataframe(pd.read_sql_query("SELECT filename, count, timestamp FROM history WHERE username=?", conn, params=(user,)))
+        with s_tab:
+            st.dataframe(pd.read_sql_query("SELECT amount, coins_bought, timestamp FROM sales WHERE username=?", conn, params=(user,)))
