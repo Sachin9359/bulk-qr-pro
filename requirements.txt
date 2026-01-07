@@ -3,4 +3,5 @@ pandas
 segno
 openpyxl
 passlib
+reportlab
 plotly
