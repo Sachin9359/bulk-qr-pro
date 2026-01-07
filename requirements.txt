@@ -4,5 +4,6 @@ segno
 passlib
 reportlab
 plotly
-openpyxl  <-- Important
+openpyxl
+
 
