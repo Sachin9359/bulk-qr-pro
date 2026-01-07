@@ -143,9 +143,13 @@ else:
                     for i, row in df.iterrows():
                         bar.progress((i+1)/len(df))
                         msg.text(f"Generating {i+1}/{len(df)}")
-                        qr = segno.make(str(row[col]))
+                        # IMPROVED QR SETTINGS
+                        # 'error'='H' adds maximum backup data to the code for better scanning
+                        qr = segno.make(str(row[col]), error='h')
                         img_buf = io.BytesIO()
-                        qr.save(img_buf, kind='png', scale=10)
+                        # 'scale'=20 makes it high-resolution
+                        # 'border'=4 adds the necessary white space around the code
+                        qr.save(img_buf, kind='png', scale=20. border=4)
                         zf.writestr(f"qr_{i+1}.png", img_buf.getvalue())
                 
                 c.execute('UPDATE users SET coins = coins - ? WHERE username=?', (len(df), user))
@@ -164,3 +168,4 @@ else:
     st.write("---")
     st.subheader("📜 History")
     st.dataframe(pd.read_sql_query("SELECT filename, count, timestamp FROM history WHERE username=?", conn, params=(user,)), use_container_width=True)
+
