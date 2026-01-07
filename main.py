@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 
 # ==========================================
-# 1. DATABASE & PDF LOGIC
+# 1. DATABASE & PDF LOGIC (Updated for ₹)
 # ==========================================
 def init_db():
     conn = sqlite3.connect('bulkqr_v4.db', check_same_thread=False)
@@ -26,16 +26,16 @@ def generate_receipt(user, amount, coins):
     buffer = io.BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     p.setFont("Helvetica-Bold", 20)
-    p.drawString(200, 750, "BULKQR PRO - RECEIPT")
+    p.drawString(200, 750, "BULKQR PRO - INVOICE")
     p.setFont("Helvetica", 12)
-    p.drawString(50, 700, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    p.drawString(50, 700, f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M')}")
     p.drawString(50, 680, f"Customer: {user}")
     p.line(50, 660, 550, 660)
-    p.drawString(50, 630, "Description: Bulk QR Coin Recharge")
+    p.drawString(50, 630, "Description: QR Coin Recharge (1:1 Ratio)")
     p.drawString(50, 610, f"Coins Added: {coins}")
-    p.drawString(50, 590, f"Total Paid: ${amount:.2f}")
+    p.drawString(50, 590, f"Total Paid: Rs. {amount:.2f}")
     p.line(50, 570, 550, 570)
-    p.drawString(50, 550, "Thank you for your business!")
+    p.drawString(50, 550, "Thank you for using BulkQR Pro India!")
     p.showPage()
     p.save()
     return buffer.getvalue()
@@ -43,9 +43,9 @@ def generate_receipt(user, amount, coins):
 conn, c = init_db()
 
 # ==========================================
-# 2. APP CONFIG & AUTH
+# 2. APP CONFIG
 # ==========================================
-st.set_page_config(page_title="BulkQR Pro 2026", layout="wide", page_icon="📸")
+st.set_page_config(page_title="BulkQR India", layout="wide", page_icon="📸")
 
 if 'auth' not in st.session_state:
     st.session_state.auth = False
@@ -54,7 +54,7 @@ if 'auth' not in st.session_state:
 # 3. LOGIN / REGISTRATION
 # ==========================================
 if not st.session_state.auth:
-    st.title("📸 BulkQR Pro: Login or Register")
+    st.title("📸 BulkQR Pro India")
     t1, t2 = st.tabs(["🔑 Login", "📝 Register"])
     with t1:
         u = st.text_input("Username")
@@ -69,14 +69,14 @@ if not st.session_state.auth:
     with t2:
         nu = st.text_input("New Username")
         np = st.text_input("New Password", type='password')
-        n_geo = st.selectbox("Country", ["India", "USA", "UK", "Other"])
+        n_geo = st.selectbox("State", ["Delhi", "Maharashtra", "Karnataka", "UP", "Other"])
         n_gen = st.radio("Gender", ["Male", "Female"], horizontal=True)
         if st.button("Sign Up"):
             try:
                 hashed = pbkdf2_sha256.hash(np)
                 c.execute('INSERT INTO users VALUES (?,?,?,?,?)', (nu, hashed, 10, n_geo, n_gen))
                 conn.commit()
-                st.success("Account created! 10 Free Coins added.")
+                st.success("Account created! 10 Free Welcome Coins added.")
             except: st.error("Username taken.")
 
 # ==========================================
@@ -86,23 +86,32 @@ else:
     user = st.session_state.user
     balance = c.execute('SELECT coins FROM users WHERE username=?', (user,)).fetchone()[0]
     
-    # --- SIDEBAR: WALLET & RECHARGE ---
+    # --- SIDEBAR: WALLET & CUSTOM RECHARGE ---
     st.sidebar.title(f"👤 {user}")
-    st.sidebar.metric("Balance", f"🪙 {balance} Coins")
+    st.sidebar.metric("Your Balance", f"🪙 {balance} Coins")
     
     st.sidebar.write("---")
-    st.sidebar.subheader("💳 Recharge")
-    pack = st.sidebar.selectbox("Select Pack", [{"p":5.0, "c":50, "l":"50 Coins - $5"}, {"p":15.0, "c":200, "l":"200 Coins - $15"}], format_func=lambda x: x['l'])
-    if st.sidebar.button("Buy Coins"):
-        c.execute('UPDATE users SET coins = coins + ? WHERE username=?', (pack['c'], user))
-        c.execute('INSERT INTO sales VALUES (?,?,?,?)', (user, pack['p'], pack['c'], datetime.now()))
-        conn.commit()
-        st.session_state.last_receipt = generate_receipt(user, pack['p'], pack['c'])
-        st.sidebar.success("Added!")
-        st.rerun()
+    st.sidebar.subheader("💳 Custom Recharge")
+    st.sidebar.caption("Min: ₹10 | 1 Rupee = 1 Coin")
+    
+    # Custom Amount Input
+    custom_amount = st.sidebar.number_input("Enter Amount (₹)", min_value=0, step=1)
+    
+    if st.sidebar.button("Pay Now"):
+        if custom_amount >= 10:
+            # 1 Rupee = 1 Coin logic
+            coins_to_add = int(custom_amount)
+            c.execute('UPDATE users SET coins = coins + ? WHERE username=?', (coins_to_add, user))
+            c.execute('INSERT INTO sales VALUES (?,?,?,?)', (user, custom_amount, coins_to_add, datetime.now()))
+            conn.commit()
+            st.session_state.last_receipt = generate_receipt(user, custom_amount, coins_to_add)
+            st.sidebar.success(f"Added {coins_to_add} Coins!")
+            st.rerun()
+        else:
+            st.sidebar.error("Minimum recharge is ₹10")
 
     if 'last_receipt' in st.session_state:
-        st.sidebar.download_button("📄 Download Receipt", st.session_state.last_receipt, "Receipt.pdf", "application/pdf")
+        st.sidebar.download_button("📄 Download Receipt (PDF)", st.session_state.last_receipt, "Receipt.pdf", "application/pdf")
 
     if st.sidebar.button("Logout"):
         st.session_state.auth = False
@@ -112,10 +121,10 @@ else:
     if user == "admin":
         if st.sidebar.toggle("🛠️ Admin Dashboard"):
             st.title("🛠️ Admin Management")
-            at1, at2 = st.tabs(["📊 Analytics", "👥 Users"])
+            at1, at2 = st.tabs(["📊 Revenue", "👥 Users"])
             with at1:
-                df_rev = pd.read_sql_query("SELECT SUM(amount) as revenue, country FROM sales JOIN users ON sales.username = users.username GROUP BY country", conn)
-                st.plotly_chart(px.bar(df_rev, x='country', y='revenue', title="Revenue by Country"))
+                df_rev = pd.read_sql_query("SELECT SUM(amount) as revenue, country as state FROM sales JOIN users ON sales.username = users.username GROUP BY country", conn)
+                st.plotly_chart(px.bar(df_rev, x='state', y='revenue', title="Revenue by State (₹)"))
             with at2:
                 search = st.text_input("Search User")
                 if search:
@@ -128,7 +137,7 @@ else:
                             st.success("Updated")
             st.stop()
 
-    # --- QR GENERATOR WITH PROGRESS BAR ---
+    # --- QR GENERATOR (Improved for Scanning) ---
     st.title("📸 Bulk QR Generator")
     file = st.file_uploader("Upload CSV/Excel", type=['csv', 'xlsx'])
     if file:
@@ -142,13 +151,10 @@ else:
                 with zipfile.ZipFile(zip_buf, "w") as zf:
                     for i, row in df.iterrows():
                         bar.progress((i+1)/len(df))
-                        msg.text(f"Generating {i+1}/{len(df)}")
-                        # IMPROVED QR SETTINGS
-                        # 'error'='H' adds maximum backup data to the code for better scanning
+                        msg.text(f"Processing {i+1}/{len(df)}")
+                        # HIGH SCAN QUALITY SETTINGS
                         qr = segno.make(str(row[col]), error='h')
                         img_buf = io.BytesIO()
-                        # 'scale'=20 makes it high-resolution
-                        # 'border'=4 adds the necessary white space around the code
                         qr.save(img_buf, kind='png', scale=20, border=4)
                         zf.writestr(f"qr_{i+1}.png", img_buf.getvalue())
                 
@@ -157,7 +163,7 @@ else:
                 conn.commit()
                 st.session_state.zip_data = zip_buf.getvalue()
                 st.rerun()
-            else: st.error("Not enough coins!")
+            else: st.error(f"You need {len(df)} coins. Please recharge ₹{len(df) - balance} more.")
 
     if 'zip_data' in st.session_state:
         st.download_button("📥 DOWNLOAD ZIP FILE", st.session_state.zip_data, "Bulk_QRs.zip", "application/zip")
@@ -168,5 +174,3 @@ else:
     st.write("---")
     st.subheader("📜 History")
     st.dataframe(pd.read_sql_query("SELECT filename, count, timestamp FROM history WHERE username=?", conn, params=(user,)), use_container_width=True)
-
-
