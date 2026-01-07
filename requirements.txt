@@ -1,0 +1,6 @@
+streamlit
+pandas
+segno
+openpyxl
+passlib
+plotly
