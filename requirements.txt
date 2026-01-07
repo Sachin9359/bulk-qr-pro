@@ -1,7 +1,8 @@
 streamlit
 pandas
 segno
-openpyxl
 passlib
 reportlab
 plotly
+openpyxl  <-- Important
+
